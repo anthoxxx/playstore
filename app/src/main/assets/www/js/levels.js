@@ -42,21 +42,20 @@
   function lerp(a, b, t) { return a + (b - a) * t; }
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 
+  // difficulté strictement croissante : le niveau 1 est le plus facile, le 2000 le plus dur
   function difficulty(n) {
-    var base = 1 - Math.exp(-(n - 1) / 420);
-    var inWorld = (n - 1) % LEVELS_PER_WORLD;
-    var wave = 0;
-    if (inWorld === LEVELS_PER_WORLD - 1) wave = 0.1;      // boss de fin de monde
-    else if (inWorld % 5 === 4) wave = 0.06;               // niveau « difficile »
-    else if (inWorld % 5 === 0) wave = -0.06;              // niveau de répit
-    var early = n < 15 ? -0.08 : 0;
-    return clamp(base + wave + early, 0, 1.05);
+    return clamp(1 - Math.exp(-(n - 1) / 600), 0, 1);
+  }
+
+  // marge de coups accordée par rapport à ce que le robot a mesuré :
+  // très généreuse au début, de plus en plus serrée (jamais en dessous du besoin mesuré)
+  function slack(n) {
+    return 1.02 + 1.2 * Math.exp(-(n - 1) / 500);
   }
 
   function levelTag(n) {
     var inWorld = (n - 1) % LEVELS_PER_WORLD;
     if (n > 20 && inWorld === LEVELS_PER_WORLD - 1) return 'boss';
-    if (n > 10 && inWorld % 5 === 4) return 'hard';
     return '';
   }
 
@@ -170,6 +169,21 @@
   }
 
   var cache = {};
+  var CALIB = null;
+  function calibTable() {
+    if (CALIB) return CALIB;
+    var raw = null;
+    if (typeof module !== 'undefined' && module.exports) {
+      if (process.env.NOVA_NO_CALIB) return null;
+      try { raw = require('./levels-calib.js'); } catch (e) { raw = null; }
+    } else raw = global.NOVA_CALIB;
+    if (raw && raw.w) CALIB = { w: raw.w.split(',').map(Number), m: raw.m ? raw.m.split(',').map(Number) : null };
+    return CALIB;
+  }
+  function resetCalib() { CALIB = null; cache = {}; }
+  function setCalib(c) { CALIB = c; cache = {}; }
+  // nombre de coups que doit demander un niveau (avant la marge) : 9 au début, 24 à la fin
+  function targetNeed(n) { return 9 + 15 * difficulty(n); }
 
   function generate(n) {
     n = clamp(Math.floor(n), 1, MAX_LEVEL);
@@ -180,7 +194,6 @@
     var type = chooseType(n, rng);
 
     var colors = (n < 40 ? 5 : (rng() < lerp(0.15, 0.75, clamp((n - 40) / 600, 0, 1)) ? 6 : 5));
-    if (tag === 'boss' && n > 60) colors = 6;
 
     // taille et forme
     var rows = 9, cols = 9;
@@ -211,6 +224,9 @@
     var hard = lerp(0, 1, clamp(d, 0, 1));
     var moves;
     var colorBonus = colors === 6 ? 1.45 : 1;
+    // quantité de travail ajustée par la calibration pour que la durée des niveaux monte régulièrement
+    var calib = calibTable();
+    var W = calib && calib.w && calib.w[n - 1] ? calib.w[n - 1] : 1;
 
     // obstacles « décoratifs » (glace / cages) qui gênent sur les niveaux non-glace
     function addFrost(count, filter) {
@@ -230,14 +246,15 @@
     if (type === 'score') {
       moves = Math.round(lerp(22, 15, hard) + rng() * 4);
       var spm = colors === 5 ? 1400 : 650;
-      var target = Math.round(moves * spm * lerp(0.4, 0.78, hard) / 500) * 500;
+      var target = Math.round(moves * spm * lerp(0.4, 0.78, hard) * W / 500) * 500;
       level.goals.push({ type: 'score', target: Math.max(1000, target) });
       if (n > 20) addFrost(Math.round(lerp(0, 10, hard) * rng()), notTop);
     } else if (type === 'jelly') {
-      var jc = Math.round(clamp(lerp(0.3, 0.85, hard) * area * lerp(0.6, 1, rng()), 8, area));
-      if (n === 4) jc = 12;
-      var jcells = jellyPattern(rng, cells, rows, cols, jc);
+      var jc = Math.round(clamp(lerp(0.3, 0.85, hard) * area * lerp(0.6, 1, rng()), 8, area) * W);
       var dbl = n > 60 ? lerp(0, 0.45, hard) : 0;
+      if (jc > area) { dbl = Math.min(1, dbl + (jc - area) / area); jc = area; }
+      jc = Math.max(4, jc);
+      var jcells = jellyPattern(rng, cells, rows, cols, jc);
       var layers = 0;
       jcells.forEach(function (p) {
         var lv = rng() < dbl ? 2 : 1;
@@ -257,12 +274,12 @@
       }
       var perMove = (colors === 5 ? 1.55 : 1.0) * lerp(0.8, 1.2, hard) * [1, 0.85, 0.75][ncol - 1];
       picks.forEach(function (col) {
-        var cnt = Math.round(moves * perMove / 5) * 5;
-        level.goals.push({ type: 'collect', color: col, count: Math.max(10, cnt) });
+        var cnt = Math.round(moves * perMove * W / 5) * 5;
+        level.goals.push({ type: 'collect', color: col, count: Math.max(5, cnt) });
       });
       if (n > 25 && rng() < 0.6) addFrost(Math.round(lerp(2, 10, hard)), notTop);
     } else if (type === 'frost') {
-      var fc = Math.round(clamp(lerp(10, 19, hard) + rng() * 5, 8, area * 0.4));
+      var fc = Math.round(clamp((lerp(10, 19, hard) + rng() * 5) * W, 4, area * 0.45));
       addFrost(fc, notTop);
       var hpSum = 0;
       level.frost.forEach(function (f) { hpSum += f[2]; });
@@ -270,6 +287,7 @@
       level.goals.push({ type: 'frost' });
     } else if (type === 'ingredient') {
       var ic = n < 30 ? 1 + Math.floor(rng() * 2) : 2 + Math.floor(rng() * lerp(1, 3, hard));
+      ic = Math.round(clamp(ic * W, 1, 6));
       level.ingMax = ic >= 2 ? 2 : 1;
       moves = Math.round(clamp(ic * lerp(12, 10.5, hard) * (colors === 6 ? 1.6 : 1) + 6, 14, 55));
       level.goals.push({ type: 'ingredient', count: ic });
@@ -279,7 +297,7 @@
     // second objectif sur les niveaux avancés
     if (n > 80 && type !== 'score' && type !== 'collect' && rng() < lerp(0.1, 0.5, hard)) {
       var col2 = Math.floor(rng() * colors);
-      var extra = Math.round(moves * (colors === 6 ? 0.8 : 1.1) * lerp(0.7, 1.0, hard) / 5) * 5;
+      var extra = Math.round(moves * (colors === 6 ? 0.8 : 1.1) * lerp(0.7, 1.0, hard) * W / 5) * 5;
       level.goals.push({ type: 'collect', color: col2, count: Math.max(10, extra) });
       moves += 3;
     }
@@ -293,8 +311,8 @@
       });
     }
 
-    if (tag === 'hard') moves = Math.max(10, moves - 1);
-    if (tag === 'boss') moves = Math.max(10, moves - 2);
+    // nombre de coups final : besoin mesuré par le robot (tools/calibrate.js) × marge décroissante
+    if (calib && calib.m && calib.m[n - 1]) moves = Math.round(clamp(calib.m[n - 1] * slack(n), 12, 60));
     level.moves = moves;
 
     // seuils d'étoiles
@@ -323,7 +341,7 @@
 
   var api = {
     MAX_LEVEL: MAX_LEVEL, LEVELS_PER_WORLD: LEVELS_PER_WORLD,
-    generate: generate, difficulty: difficulty, worldOf: worldOf, worldName: worldName,
+    generate: generate, difficulty: difficulty, slack: slack, resetCalib: resetCalib, setCalib: setCalib, targetNeed: targetNeed, worldOf: worldOf, worldName: worldName,
     worldTheme: worldTheme, goalText: goalText, levelTag: levelTag,
     WORLD_COUNT: Math.ceil(MAX_LEVEL / LEVELS_PER_WORLD)
   };

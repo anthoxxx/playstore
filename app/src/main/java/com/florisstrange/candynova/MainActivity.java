@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.os.VibratorManager;
+import android.speech.tts.TextToSpeech;
 import android.view.DisplayCutout;
 import android.view.View;
 import android.view.WindowInsets;
@@ -22,6 +23,8 @@ import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.window.OnBackInvokedDispatcher;
 
+import java.util.Locale;
+
 /**
  * Candy Nova - by Anthony F (Floris Strange).
  * Le jeu est écrit en HTML5/JavaScript (assets/www) et affiché en plein écran dans une WebView.
@@ -32,12 +35,15 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private FrameLayout root;
+    private TextToSpeech tts;
+    private volatile boolean ttsReady = false;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        initVoice();
 
         root = new FrameLayout(this);
         root.setBackgroundColor(0xFF12082B);
@@ -125,8 +131,26 @@ public class MainActivity extends Activity {
         if (hasFocus) hideSystemBars();
     }
 
+    /** Voix française du téléphone pour les félicitations (« Bien joué ! », « Excellent ! »...). */
+    private void initVoice() {
+        tts = new TextToSpeech(this, status -> {
+            if (status != TextToSpeech.SUCCESS) return;
+            int r = tts.setLanguage(Locale.FRANCE);
+            if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+                r = tts.setLanguage(Locale.FRENCH);
+            }
+            if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) return;
+            tts.setPitch(1.35f);
+            tts.setSpeechRate(1.05f);
+            ttsReady = true;
+        });
+    }
+
     @Override
     protected void onDestroy() {
+        if (tts != null) {
+            tts.shutdown();
+        }
         if (web != null) {
             root.removeView(web);
             web.destroy();
@@ -187,6 +211,12 @@ public class MainActivity extends Activity {
             }
             if (vib == null || !vib.hasVibrator()) return;
             vib.vibrate(VibrationEffect.createOneShot(Math.min(ms, 200), VibrationEffect.DEFAULT_AMPLITUDE));
+        }
+
+        @JavascriptInterface
+        public void speak(String text) {
+            if (tts == null || !ttsReady || text == null) return;
+            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "nova");
         }
 
         @JavascriptInterface

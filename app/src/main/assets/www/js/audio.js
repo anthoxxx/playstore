@@ -19,7 +19,7 @@
     sfxBus.gain.value = 0.55;
     sfxBus.connect(master);
     musicBus = ctx.createGain();
-    musicBus.gain.value = 0.16;
+    musicBus.gain.value = 0.22;
     musicBus.connect(master);
     if (musicOn) startMusic();
   }
@@ -117,47 +117,165 @@
     }
   };
 
-  /* ---------- musique générative douce ---------- */
-  var CHORDS = [[0, 4, 7, 11], [-3, 0, 4, 7], [-7, -3, 0, 5], [-5, -1, 2, 7]];
-  var ARP = [0, 1, 2, 3, 2, 1, 2, 3];
-  var BPM = 92;
+  /* ---------- musique : deux morceaux composés (menu / partie) ---------- */
+  function midi(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+  var R_ = -1; // silence
+  var TRACKS = {
+    menu: {
+      bpm: 84,
+      chords: [[60, 64, 67], [57, 60, 64], [53, 57, 60], [55, 59, 62]],
+      bass: [36, 33, 29, 31],
+      melody: [
+        [76, R_, R_, 79, R_, R_, 84, R_], [81, R_, R_, 76, R_, R_, 72, R_],
+        [77, R_, R_, 81, R_, R_, 84, R_], [83, R_, 79, R_, 74, R_, R_, R_],
+        [76, R_, 79, R_, 84, R_, 83, 81], [81, R_, 76, R_, 72, R_, R_, R_],
+        [77, R_, 81, R_, 84, R_, 86, R_], [83, R_, R_, R_, 79, R_, R_, R_]
+      ],
+      lead: 'bell', drums: false, pad: true
+    },
+    game: {
+      bpm: 112,
+      chords: [[65, 69, 72], [67, 71, 74], [64, 67, 71], [69, 72, 76], [65, 69, 72], [67, 71, 74], [60, 64, 67], [67, 71, 74]],
+      bass: [41, 43, 40, 45, 41, 43, 36, 43],
+      melody: [
+        [72, R_, 74, 76, 77, R_, 76, 74], [74, R_, 71, R_, 67, 71, 74, R_],
+        [76, R_, 79, R_, 76, 74, 71, R_], [72, R_, 69, 72, 76, R_, R_, R_],
+        [77, 76, 77, 79, 81, R_, 77, R_], [79, R_, 74, R_, 71, 74, 79, R_],
+        [76, R_, 72, R_, 79, R_, 84, R_], [83, R_, 79, R_, 74, R_, R_, R_]
+      ],
+      lead: 'pluck', drums: true, pad: false
+    }
+  };
+  var track = 'menu', nextTrack = 'menu';
+  var noiseBuf = null;
 
   function startMusic() {
     if (!ctx || musicTimer) return;
     nextNoteTime = ctx.currentTime + 0.1;
-    musicTimer = setInterval(schedule, 60);
+    musicStep = 0;
+    musicTimer = setInterval(schedule, 50);
   }
   function stopMusic() { if (musicTimer) { clearInterval(musicTimer); musicTimer = null; } }
 
-  function mtone(freq, t, dur, type, vol) {
+  function env(g, t, a, peak, dur) {
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  }
+  function osc(type, f, t, dur, peak, attack, filter) {
     var o = ctx.createOscillator(), g = ctx.createGain();
     o.type = type;
-    o.frequency.value = freq;
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + 0.04);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g); g.connect(musicBus);
+    o.frequency.value = f;
+    env(g, t, attack || 0.01, peak, dur);
+    if (filter) {
+      var fl = ctx.createBiquadFilter();
+      fl.type = 'lowpass';
+      fl.frequency.value = filter;
+      o.connect(fl); fl.connect(g);
+    } else o.connect(g);
+    g.connect(musicBus);
     o.start(t); o.stop(t + dur + 0.05);
+  }
+  function getNoise() {
+    if (!noiseBuf) {
+      noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
+      var d = noiseBuf.getChannelData(0);
+      for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    return noiseBuf;
+  }
+  function drum(kind, t) {
+    if (kind === 'kick') {
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.setValueAtTime(150, t);
+      o.frequency.exponentialRampToValueAtTime(42, t + 0.14);
+      env(g, t, 0.004, 0.9, 0.22);
+      o.connect(g); g.connect(musicBus);
+      o.start(t); o.stop(t + 0.25);
+      return;
+    }
+    var src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g2 = ctx.createGain();
+    src.buffer = getNoise();
+    f.type = kind === 'hat' ? 'highpass' : 'bandpass';
+    f.frequency.value = kind === 'hat' ? 7500 : 1600;
+    env(g2, t, 0.002, kind === 'hat' ? 0.18 : 0.45, kind === 'hat' ? 0.05 : 0.14);
+    src.connect(f); f.connect(g2); g2.connect(musicBus);
+    src.start(t, Math.random() * 0.3); src.stop(t + 0.2);
+  }
+  function leadNote(kind, f, t, dur) {
+    if (kind === 'bell') {
+      osc('sine', f, t, dur * 2.2, 0.32, 0.005);
+      osc('sine', f * 2.76, t, dur * 0.8, 0.06, 0.005);
+      osc('triangle', f * 2, t, dur * 1.2, 0.05, 0.005);
+    } else {
+      osc('triangle', f, t, dur * 1.1, 0.34, 0.005, 3200);
+      osc('square', f, t, dur * 0.6, 0.05, 0.005, 1800);
+    }
   }
 
   function schedule() {
     if (!ctx || ctx.state !== 'running') return;
-    var stepDur = 60 / BPM / 2;
-    while (nextNoteTime < ctx.currentTime + 0.25) {
-      var bar = Math.floor(musicStep / 8) % CHORDS.length;
-      var chord = CHORDS[bar];
-      var i = musicStep % 8;
-      var semi = chord[ARP[i]];
-      mtone(note(semi, 440), nextNoteTime, stepDur * 1.6, 'triangle', 0.22);
-      if (i === 0) {
-        mtone(note(chord[0] - 24, 440), nextNoteTime, stepDur * 7.5, 'sine', 0.35);
-        mtone(note(chord[1] - 12, 440), nextNoteTime, stepDur * 7.5, 'sine', 0.1);
+    while (nextNoteTime < ctx.currentTime + 0.3) {
+      var T = TRACKS[track];
+      var stepDur = 60 / T.bpm / 2;
+      var barCount = T.melody.length;
+      var bar = Math.floor(musicStep / 8) % barCount, i = musicStep % 8;
+      var t = nextNoteTime;
+      var ch = T.chords[bar % T.chords.length], root = T.bass[bar % T.bass.length];
+      // basse
+      if (T.drums) {
+        var bassPat = [0, R_, 12, R_, 0, 0, 12, R_];
+        if (bassPat[i] !== R_) osc('triangle', midi(root + bassPat[i]), t, stepDur * 0.9, 0.42, 0.005, 900);
+      } else if (i === 0 || i === 4) osc('sine', midi(root), t, stepDur * 3.8, 0.38, 0.02);
+      // accords
+      if (T.pad && i === 0) ch.forEach(function (m) { osc('sawtooth', midi(m), t, stepDur * 7.8, 0.035, 0.35, 900); });
+      if (!T.pad && (i === 1 || i === 3 || i === 5 || i === 7)) ch.forEach(function (m) { osc('triangle', midi(m), t, stepDur * 0.5, 0.06, 0.004, 2400); });
+      // mélodie
+      var note = T.melody[bar][i];
+      if (note !== R_) leadNote(T.lead, midi(note), t, stepDur);
+      // percussions
+      if (T.drums) {
+        if (i === 0 || i === 4) drum('kick', t);
+        if (i === 2 || i === 6) drum('clap', t);
+        drum('hat', t + (i % 2 ? 0.01 : 0));
       }
-      if (i % 4 === 2 && Math.random() < 0.5) mtone(note(semi + 24, 440), nextNoteTime, stepDur, 'sine', 0.07);
       nextNoteTime += stepDur;
       musicStep++;
+      // changement de morceau au début d'une mesure
+      if (musicStep % 8 === 0 && nextTrack !== track) { track = nextTrack; musicStep = 0; }
     }
   }
+
+  S.setTrack = function (name) { if (TRACKS[name]) nextTrack = name; };
+
+  /* ---------- voix : le jeu félicite à voix haute ---------- */
+  var voiceOn = true, lastSay = 0, frVoice = null;
+  function pickVoice() {
+    if (frVoice || !global.speechSynthesis) return frVoice;
+    var list = global.speechSynthesis.getVoices() || [];
+    for (var i = 0; i < list.length; i++) if (/^fr/i.test(list[i].lang)) { frVoice = list[i]; break; }
+    return frVoice;
+  }
+  S.setVoice = function (v) { voiceOn = v; };
+  S.say = function (text, force) {
+    if (!voiceOn) return;
+    var now = Date.now();
+    if (!force && now - lastSay < 900) return;
+    lastSay = now;
+    try {
+      if (global.Android && global.Android.speak) { global.Android.speak(text); return; }
+      var ss = global.speechSynthesis;
+      if (!ss) return;
+      ss.cancel();
+      var u = new global.SpeechSynthesisUtterance(text);
+      u.lang = 'fr-FR';
+      u.pitch = 1.5;
+      u.rate = 1.05;
+      var v = pickVoice();
+      if (v) u.voice = v;
+      ss.speak(u);
+    } catch (e) { }
+  };
 
   global.NovaAudio = S;
 })(this);

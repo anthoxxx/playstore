@@ -9,36 +9,15 @@ var path = require('path');
 var E = require(path.join(__dirname, '../app/src/main/assets/www/js/engine.js'));
 var L = require(path.join(__dirname, '../app/src/main/assets/www/js/levels.js'));
 
-function progress(b) {
-  var s = 0;
-  b.goalState().forEach(function (g) {
-    s += Math.min(1, g.have / g.need);
-  });
-  if (b.ingNeed > 0) {
-    // bonus pour les cristaux qui descendent
-    for (var r = 0; r < b.R; r++) for (var c = 0; c < b.C; c++) {
-      var cd = b.candies[r][c];
-      if (cd && cd.kind === E.K.ING) s += 0.5 * (r + 1) / b.R / b.ingNeed;
-    }
-  }
-  return s;
-}
+var bot = require('./bot.js');
+var progress = bot.progress;
 
 function playGame(level, seed) {
   var b = new E.Board(level, seed);
   var guard = 0;
   while (b.status() === 'playing' && guard++ < 200) {
-    var moves = b.listMoves();
-    if (!moves.length) break;
-    var best = null, bestV = -1;
-    for (var i = 0; i < moves.length; i++) {
-      var m = moves[i];
-      var cb = b.clone();
-      cb.trySwap(m[0], m[1], m[2], m[3]);
-      var v = progress(cb) * 1000 + cb.score / 100 + Math.random();
-      if (cb.status() === 'won') v += 1e6;
-      if (v > bestV) { bestV = v; best = m; }
-    }
+    var best = bot.bestMove(b);
+    if (!best) break;
     var res = b.trySwap(best[0], best[1], best[2], best[3]);
     if (!res.valid) throw new Error('coup invalide ' + best);
   }

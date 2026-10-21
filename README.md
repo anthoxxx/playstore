@@ -15,7 +15,11 @@ Un jeu de bonbons à aligner (« match‑3 ») dans l'espace, pour Android, avec
 - **Nova Rush** : à la fin d'un niveau réussi, les coups restants deviennent des bonbons rayés qui explosent.
 - 1 à 3 **étoiles** par niveau, **pièces**, **5 vies** (une vie revient toutes les 20 min),
   **bonus** (marteau, mélange, +5 coups), **boutique** (pièces gagnées en jouant), **cadeau quotidien**.
-- Musique et sons générés par le code, vibrations, indices automatiques, tutoriel intégré.
+- **Difficulté qui monte régulièrement** : un robot a joué chaque niveau pour mesurer les coups nécessaires ;
+  chaque niveau reçoit ce besoin × une marge qui diminue du niveau 1 (très facile) au niveau 2000.
+  Après une modification de `levels.js`, relance `node tools/calibrate.js` (≈ 10 min).
+- Deux musiques composées (menus et partie), sons, **voix qui félicite** (« Bien joué ! », « Excellent ! »,
+  « Génial ! »…, voix française du téléphone), vibrations, indices, tutoriel intégré.
 - 100 % hors ligne, aucune pub, aucun achat réel, aucune donnée collectée.
 
 ## Organisation du projet
@@ -30,6 +34,7 @@ app/src/main/assets/www/      le jeu (HTML5 + JavaScript, aucune dépendance)
 app/src/main/java/...         MainActivity : affiche le jeu en plein écran (WebView)
 tools/test.js                 tests du moteur et des 2000 niveaux
 tools/sim.js                  un robot joue les niveaux pour mesurer la difficulté
+tools/calibrate.js            calibre les 2000 niveaux (durée et coups) pour une difficulté croissante
 tools/make-store-assets.js    génère l'icône, la bannière et les captures du Play Store
 store/                        visuels + texte de la fiche Play Store
 docs/privacy-policy.html      politique de confidentialité (à publier avec GitHub Pages)

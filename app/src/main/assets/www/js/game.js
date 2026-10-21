@@ -16,7 +16,7 @@
   function defaultSave() {
     return {
       unlocked: 1, stars: {}, best: {}, coins: 300, lives: 5, livesTs: Date.now(),
-      boosters: { hammer: 3, shuffle: 3, moves: 2 }, sfx: true, music: true, vibe: true,
+      boosters: { hammer: 3, shuffle: 3, moves: 2 }, sfx: true, music: true, vibe: true, voice: true,
       tips: {}, daily: { day: '', streak: 0 }, played: 0
     };
   }
@@ -367,6 +367,7 @@
     clearScene();
     scene = 'title';
     setTheme(0);
+    SND.setTrack('menu');
     titleEl = el('div', 'title-screen',
       '<div class="logo"><span class="l1">Candy</span><span class="l2">Nova</span></div>' +
       '<div class="byline">by Anthony F <em>(Floris Strange)</em></div>' +
@@ -417,6 +418,7 @@
   function applyAudioPrefs() {
     SND.setSfx(save.sfx);
     SND.setMusic(save.music);
+    SND.setVoice(save.voice !== false);
   }
 
   /* ===================== Carte des niveaux ===================== */
@@ -436,6 +438,7 @@
   function showMap() {
     clearScene();
     scene = 'map';
+    SND.setTrack('menu');
     buildTopbar();
     mapUI = el('div', 'map-ui',
       '<button class="btn big play" id="m-play"></button>');
@@ -756,6 +759,7 @@
   function startLevel(n) {
     clearScene();
     scene = 'play';
+    SND.setTrack('game');
     var level = LV.generate(n);
     var seed = ((Date.now() & 0xffffff) * 31 + n * 7919) >>> 0;
     var board = new E.Board(level, seed);
@@ -1192,7 +1196,7 @@
   /* ---------- lecture des étapes ---------- */
 
   var WAVE = 70;
-  var COMBO_WORDS = [[10, 'SUPERNOVA !'], [8, 'Galactique !'], [6, 'Stellaire !'], [5, 'Divin !'], [4, 'Délicieux !'], [3, 'Sucré !']];
+  var COMBO_WORDS = [[9, 'SUPERNOVA !'], [7, 'Fantastique !'], [5, 'Incroyable !'], [4, 'Génial !'], [3, 'Excellent !'], [2, 'Bien joué !']];
   var SPECIAL_TIPS = {};
   SPECIAL_TIPS[K.SH] = 'Bonbon rayé ! Aligne-le pour balayer toute une ligne.';
   SPECIAL_TIPS[K.SV] = SPECIAL_TIPS[K.SH];
@@ -1308,19 +1312,24 @@
             }
           });
           SND.create();
+          var made = st.transforms.map(function (t) { return t.kind; });
+          if (made.indexOf(K.NOVA) >= 0) SND.say('Nova !');
+          else if (st.cascade < 2) SND.say(made.indexOf(K.WRAP) >= 0 ? 'Bravo !' : 'Pas mal !');
         });
       }
       if (st.removed.length) SND.pop(st.cascade);
       st.popups.slice().sort(function (a, b) { return b.v - a.v; }).slice(0, 4).forEach(function (pp) {
         addPopup(pp.r, pp.c, '+' + fmt(pp.v), pp.v >= 500 ? '#ffd23d' : '#ffffff', pp.v >= 1000);
       });
-      if (st.cascade >= 3 && st.cascade > G.combo) {
+      if (st.cascade >= 2 && st.cascade > G.combo) {
         G.combo = st.cascade;
         for (var i = 0; i < COMBO_WORDS.length; i++) {
-          if (st.cascade >= COMBO_WORDS[i][0]) { bigText(COMBO_WORDS[i][1], 'combo'); SND.combo(i); break; }
+          if (st.cascade >= COMBO_WORDS[i][0]) { bigText(COMBO_WORDS[i][1], 'combo'); SND.combo(i); SND.say(COMBO_WORDS[i][1], true); break; }
         }
       }
-      if (st.effects.length && st.effects.some(function (e) { return e.type === 'supernova'; })) bigText('SUPERNOVA !', 'combo');
+      if (st.effects.length && st.effects.some(function (e) { return e.type === 'supernova'; })) { bigText('SUPERNOVA !', 'combo'); SND.say('Supernova !', true); }
+      else if (st.cascade < 2 && st.effects.some(function (e) { return e.type === 'zap'; })) SND.say('Waouh !');
+      else if (st.cascade < 2 && st.effects.length >= 2) SND.say('Super !');
       return wait(maxWave * WAVE + 240).then(function () {
         if (!G) return;
         G.score = st.score;
@@ -1430,12 +1439,14 @@
     clearHint();
     bigText(G.board.isScoreOnly() ? 'Bravo !' : 'Objectif atteint !', 'win');
     SND.win();
+    SND.say('Bravo ! Niveau réussi !', true);
     vibe(60);
     return wait(1300).then(function () {
       if (G !== g) return;
       var hasSpecial = G.board.snapshotCandies().some(function (c) { return c.kind !== K.NORMAL && c.kind !== K.ING; });
       if (G.board.moves > 0 || hasSpecial) {
         bigText('Nova Rush !', 'combo');
+        SND.say('Nova Rush !', true);
         return wait(800).then(function () {
           if (G !== g) return;
           return playSteps(G.board.bonusRush());
@@ -1488,6 +1499,7 @@
     G.ended = true;
     loseLife();
     SND.lose();
+    SND.say('Oh non ! Réessaie !', true);
     var m = modal(
       '<h2>Niveau ' + n + ' échoué</h2><div class="daily-ico">💔</div>' +
       '<p>Tu perds une vie. Il te reste <b>' + save.lives + '</b> ❤</p>' +
@@ -1670,7 +1682,7 @@
     function row(key, label) {
       return '<label class="toggle"><span>' + label + '</span><input type="checkbox" data-key="' + key + '"' + (save[key] ? ' checked' : '') + '><i></i></label>';
     }
-    return '<div class="toggles">' + row('sfx', '🔊 Sons') + row('music', '🎵 Musique') + row('vibe', '📳 Vibrations') + '</div>';
+    return '<div class="toggles">' + row('sfx', '🔊 Sons') + row('music', '🎵 Musique') + row('voice', '🗣 Voix') + row('vibe', '📳 Vibrations') + '</div>';
   }
   function bindToggles(root) {
     root.querySelectorAll('input[data-key]').forEach(function (inp) {
