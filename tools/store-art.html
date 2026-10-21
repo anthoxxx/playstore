@@ -1,0 +1,49 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../app/src/main/assets/www/css/style.css">
+<style>
+  html, body { touch-action: auto; background: transparent; }
+  canvas { display: block; }
+  #feature { position: relative; width: 1024px; height: 500px; overflow: hidden; }
+  #feature canvas { position: absolute; inset: 0; }
+  #feature .logo { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -58%) rotate(-4deg); }
+  #feature .logo .l1 { font-size: 120px; } #feature .logo .l2 { font-size: 136px; }
+  #feature .byline { position: absolute; left: 0; right: 0; bottom: 46px; text-align: center; font-size: 30px; }
+</style></head>
+<body>
+<canvas id="icon" width="512" height="512"></canvas>
+<div id="feature"><canvas id="fbg" width="1024" height="500"></canvas>
+  <div class="logo"><span class="l1">Candy</span><span class="l2">Nova</span></div>
+  <div class="byline">by Anthony F <em>(Floris Strange)</em></div></div>
+<script src="../app/src/main/assets/www/js/engine.js"></script>
+<script src="../app/src/main/assets/www/js/art.js"></script>
+<script>
+function sky(ctx, w, h, seed) {
+  var g = ctx.createRadialGradient(w / 2, h * 0.38, 0, w / 2, h / 2, Math.max(w, h) * 0.75);
+  g.addColorStop(0, '#8a3dff'); g.addColorStop(0.55, '#3a0f6e'); g.addColorStop(1, '#12082b');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  var rnd = NovaEngine.mulberry32(seed);
+  ctx.fillStyle = '#fff';
+  for (var i = 0; i < w * h / 2500; i++) { ctx.globalAlpha = 0.3 + rnd() * 0.7; ctx.beginPath(); ctx.arc(rnd() * w, rnd() * h, rnd() * 1.8 + 0.4, 0, 7); ctx.fill(); }
+  ctx.globalAlpha = 1;
+}
+function candy(ctx, x, y, size, color, kind, rot) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot || 0);
+  NovaArt.drawCandy(ctx, color, kind, size / 2); ctx.restore();
+}
+var K = NovaEngine.K;
+// icône 512
+var ic = document.getElementById('icon').getContext('2d');
+sky(ic, 512, 512, 7);
+ic.save(); ic.shadowColor = 'rgba(255,120,220,0.8)'; ic.shadowBlur = 60;
+candy(ic, 256, 276, 330, 0, K.SV, 0); ic.restore();
+ic.fillStyle = '#ffd23d';
+function star4(c, x, y, r) { c.beginPath(); c.moveTo(x, y - r); c.lineTo(x + r * 0.26, y - r * 0.26); c.lineTo(x + r, y); c.lineTo(x + r * 0.26, y + r * 0.26); c.lineTo(x, y + r); c.lineTo(x - r * 0.26, y + r * 0.26); c.lineTo(x - r, y); c.lineTo(x - r * 0.26, y - r * 0.26); c.closePath(); c.fill(); }
+ic.shadowColor = '#fff6a8'; ic.shadowBlur = 30; star4(ic, 392, 132, 58); ic.fillStyle = '#fff'; star4(ic, 132, 378, 26);
+// bannière 1024x500
+var fc = document.getElementById('fbg').getContext('2d');
+sky(fc, 1024, 500, 11);
+var list = [[90, 110, 120, 0, K.NORMAL, -0.3], [930, 120, 110, 4, K.SH, 0.2], [150, 380, 100, 2, K.NORMAL, 0.25], [880, 390, 120, -1, K.NOVA, 0],
+  [175, 470, 80, 3, K.WRAP, 0], [935, 470, 70, 5, K.NORMAL, -0.2], [250, 60, 70, 1, K.NORMAL, 0.4], [780, 50, 70, 3, K.NORMAL, -0.4], [40, 260, 70, 5, K.SV, 0], [990, 270, 70, 1, K.WRAP, 0]];
+list.forEach(function (c) { candy(fc, c[0], c[1], c[2], c[3], c[4], c[5]); });
+</script></body></html>

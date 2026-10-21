@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Signature de publication (Play Store) : fournie par variables d'environnement
+// ou par un fichier keystore.properties à la racine (jamais commité).
+def keystoreProps = new Properties()
+def keystoreFile = rootProject.file('keystore.properties')
+if (keystoreFile.exists()) {
+    keystoreFile.withInputStream { keystoreProps.load(it) }
+}
+def signingValue = { String key, String env ->
+    keystoreProps.getProperty(key) ?: System.getenv(env)
+}
+def releaseStore = signingValue('storeFile', 'CANDYNOVA_KEYSTORE')
+
+android {
+    namespace 'com.florisstrange.candynova'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.florisstrange.candynova'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    signingConfigs {
+        release {
+            if (releaseStore) {
+                storeFile rootProject.file(releaseStore)
+                storePassword signingValue('storePassword', 'CANDYNOVA_KEYSTORE_PASSWORD')
+                keyAlias signingValue('keyAlias', 'CANDYNOVA_KEY_ALIAS')
+                keyPassword signingValue('keyPassword', 'CANDYNOVA_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (releaseStore) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

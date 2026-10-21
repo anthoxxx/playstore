@@ -1,0 +1,11 @@
+.gradle/
+build/
+app/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+# secrets de signature : ne jamais commiter
+keystore.properties
+*.jks
+*.keystore
