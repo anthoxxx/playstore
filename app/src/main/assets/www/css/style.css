@@ -279,3 +279,28 @@ button { font-family: inherit; cursor: pointer; border: 0; }
   .hud-box.moves .val { font-size: 28px; }
   .boost { width: 54px; height: 54px; }
 }
+
+/* ---------- codes cadeaux / admin ---------- */
+input, textarea { font-family: inherit; user-select: text; -webkit-user-select: text; touch-action: auto; }
+.sel { user-select: text; -webkit-user-select: text; }
+.pid-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 6px 0 4px; padding: 8px 10px; border-radius: 16px; background: rgba(0, 0, 0, 0.25); }
+.pid-box span { font-size: 13px; opacity: 0.85; }
+.pid-box b { font-size: 18px; letter-spacing: 2px; font-variant-numeric: tabular-nums; }
+.code-input, .field input {
+  display: block; width: 100%; margin: 6px 0; padding: 10px 12px;
+  border: 0; border-radius: 14px; outline: none;
+  background: rgba(0, 0, 0, 0.35); color: #fff; font-size: 15px;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+.code-input { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; word-break: break-all; resize: none; }
+.code-input:focus, .field input:focus { box-shadow: inset 0 0 0 2px var(--gold); }
+.field { display: block; text-align: left; margin: 6px 0; }
+.field span { font-size: 13px; font-weight: 700; opacity: 0.9; }
+.field input:disabled { opacity: 0.4; }
+.admin-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0 10px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 14px; text-align: left; margin: 4px 0 8px; cursor: pointer; }
+.check input { width: 20px; height: 20px; accent-color: #2ee06a; }
+.form-msg { min-height: 1.2em; font-size: 14px !important; color: #b5ffcb; margin: 4px 0 !important; }
+.form-msg.err { color: #ffb3c4; }
+.admin-link { display: block; margin: 4px auto 0; font-size: 13px; opacity: 0.6; }
+#ad-copy { margin: 0 auto; display: block; }

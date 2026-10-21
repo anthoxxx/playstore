@@ -1591,18 +1591,25 @@
   function showSettings() {
     var m = modal(
       '<h2>Réglages</h2>' + settingsToggles() +
+      '<div class="pid-box"><span>Ton code joueur</span><b class="sel" id="s-pid">' + fmtPid(playerId()) + '</b>' +
+      '<button class="btn sm ghost" id="s-pid-copy">Copier</button></div>' +
+      '<button class="btn gold" id="s-gift">🎁 Entrer un code cadeau</button>' +
       '<button class="btn ghost" id="s-help">Comment jouer</button>' +
       '<button class="btn ghost" id="s-credits">Crédits</button>' +
       '<button class="btn danger" id="s-reset">Réinitialiser la progression</button>' +
-      '<button class="btn play" data-close>OK</button>');
+      '<button class="btn play" data-close>OK</button>' +
+      '<button class="link admin-link" id="s-admin">🔐 Admin</button>');
     bindToggles(m.el);
+    on(m.el, '#s-pid-copy', function () { copyText(playerId(), m.el.querySelector('#s-pid')); });
+    on(m.el, '#s-gift', showRedeem);
+    on(m.el, '#s-admin', showAdminLogin);
     on(m.el, '#s-help', showHelp);
     on(m.el, '#s-credits', showCredits);
     on(m.el, '#s-reset', function () {
       var c = modal('<h2>Tout effacer ?</h2><p>Ta progression, tes étoiles et tes pièces seront perdues.</p>' +
         '<div class="btn-row"><button class="btn ghost" data-close>Non</button><button class="btn danger" id="r-yes">Effacer</button></div>');
       on(c.el, '#r-yes', function () {
-        var keep = { sfx: save.sfx, music: save.music, vibe: save.vibe };
+        var keep = { sfx: save.sfx, music: save.music, vibe: save.vibe, pid: save.pid, redeemed: save.redeemed };
         save = defaultSave();
         for (var k in keep) save[k] = keep[k];
         persist();
@@ -1657,6 +1664,228 @@
         refreshTopbar();
       });
     });
+  }
+
+  /* ===================== Codes cadeaux et menu admin ===================== */
+
+  // Un code cadeau = données (joueur, jetons, bonus, numéro unique) + signature ECDSA.
+  // Le jeu ne contient que la clé publique ; la clé privée est chiffrée par le mot de passe admin.
+  var PID_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  var ALL_PLAYERS = '**********';
+  var PAYLOAD_LEN = 23, SIG_LEN = 64;
+  var adminKey = null;
+
+  function playerId() {
+    if (!save.pid) {
+      var s = '';
+      var rnd = new Uint32Array(10);
+      try { crypto.getRandomValues(rnd); } catch (e) { for (var j = 0; j < 10; j++) rnd[j] = Math.random() * 4294967296; }
+      for (var i = 0; i < 10; i++) s += PID_ALPHABET[rnd[i] % PID_ALPHABET.length];
+      save.pid = s;
+      persist();
+    }
+    return save.pid;
+  }
+  function fmtPid(pid) { return pid.slice(0, 5) + '-' + pid.slice(5); }
+  function cleanPid(text) { return String(text || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+  function b64uEncode(bytes) {
+    var s = '';
+    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function b64Decode(str) {
+    str = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (str.length % 4) str += '=';
+    var bin = atob(str), out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function cryptoOK() { return !!(window.crypto && crypto.subtle && window.NOVA_ADMIN_KEY); }
+
+  function makePayload(pid, gift) {
+    var p = new Uint8Array(PAYLOAD_LEN);
+    p[0] = 1;
+    for (var i = 0; i < 10; i++) p[1 + i] = pid.charCodeAt(i);
+    var coins = clamp(Math.floor(gift.coins || 0), 0, 99999999);
+    p[11] = coins >>> 24 & 255; p[12] = coins >>> 16 & 255; p[13] = coins >>> 8 & 255; p[14] = coins & 255;
+    p[15] = clamp(gift.hammer || 0, 0, 255); p[16] = clamp(gift.shuffle || 0, 0, 255);
+    p[17] = clamp(gift.moves || 0, 0, 255); p[18] = clamp(gift.lives || 0, 0, 255);
+    crypto.getRandomValues(p.subarray(19, 23));
+    return p;
+  }
+  function readPayload(p) {
+    var pid = '';
+    for (var i = 0; i < 10; i++) pid += String.fromCharCode(p[1 + i]);
+    return {
+      version: p[0], pid: pid,
+      coins: ((p[11] << 24) >>> 0) + (p[12] << 16) + (p[13] << 8) + p[14],
+      hammer: p[15], shuffle: p[16], moves: p[17], lives: p[18],
+      nonce: b64uEncode(p.subarray(19, 23))
+    };
+  }
+
+  function applyGift(g) {
+    save.coins += g.coins;
+    save.boosters.hammer = (save.boosters.hammer || 0) + g.hammer;
+    save.boosters.shuffle = (save.boosters.shuffle || 0) + g.shuffle;
+    save.boosters.moves = (save.boosters.moves || 0) + g.moves;
+    if (g.lives) { updateLives(); save.lives = Math.min(MAX_LIVES, save.lives + g.lives); }
+    persist();
+    refreshTopbar();
+    updateHUD();
+    SND.coin();
+  }
+  function giftText(g) {
+    var parts = [];
+    if (g.coins) parts.push('<b>+' + fmt(g.coins) + '</b> 🪙');
+    if (g.hammer) parts.push('+' + g.hammer + ' 🔨');
+    if (g.shuffle) parts.push('+' + g.shuffle + ' 🌀');
+    if (g.moves) parts.push('+' + g.moves + ' ➕5');
+    if (g.lives) parts.push('+' + g.lives + ' ❤');
+    return parts.join(' · ');
+  }
+
+  function redeemCode(text) {
+    var raw = String(text || '').replace(/\s+/g, '').replace(/^NOVA-?/i, '');
+    var bytes;
+    try { bytes = b64Decode(raw); } catch (e) { bytes = null; }
+    if (!bytes || bytes.length !== PAYLOAD_LEN + SIG_LEN) return Promise.reject('Ce code n\'est pas valide. Vérifie qu\'il est complet.');
+    if (!cryptoOK()) return Promise.reject('Les codes cadeaux ne sont pas disponibles sur cet appareil.');
+    var payload = bytes.slice(0, PAYLOAD_LEN), sig = bytes.slice(PAYLOAD_LEN);
+    return crypto.subtle.importKey('spki', b64Decode(window.NOVA_ADMIN_KEY.pub), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify'])
+      .then(function (pub) { return crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, pub, sig, payload); })
+      .then(function (ok) {
+        if (!ok) throw 'Ce code n\'est pas valide.';
+        var g = readPayload(payload);
+        if (g.version !== 1) throw 'Ce code n\'est pas valide.';
+        if (g.pid !== ALL_PLAYERS && g.pid !== playerId()) throw 'Ce code est réservé à un autre joueur.';
+        save.redeemed = save.redeemed || [];
+        if (save.redeemed.indexOf(g.nonce) >= 0) throw 'Tu as déjà utilisé ce code.';
+        save.redeemed.push(g.nonce);
+        applyGift(g);
+        return g;
+      });
+  }
+
+  function showRedeem() {
+    var m = modal('<h2>Code cadeau</h2>' +
+      '<p class="small">Colle ici le code que tu as reçu.</p>' +
+      '<textarea id="rc-code" class="code-input" rows="4" placeholder="NOVA-…" spellcheck="false" autocomplete="off"></textarea>' +
+      '<p class="form-msg" id="rc-msg"></p>' +
+      '<button class="btn gold" id="rc-ok">Valider</button><button class="btn ghost" data-close>Fermer</button>');
+    var msg = m.el.querySelector('#rc-msg');
+    on(m.el, '#rc-ok', function () {
+      msg.className = 'form-msg';
+      msg.textContent = 'Vérification…';
+      redeemCode(m.el.querySelector('#rc-code').value).then(function (g) {
+        m.close();
+        modal('<h2>Cadeau reçu !</h2><div class="daily-ico">🎁</div><p class="reward">' + giftText(g) + '</p>' +
+          '<button class="btn play" data-close>Super !</button>');
+        burst(W / 2, H / 2, '#ffd23d', 40, 0.4, 6);
+      }, function (err) {
+        msg.className = 'form-msg err';
+        msg.textContent = typeof err === 'string' ? err : 'Ce code n\'est pas valide.';
+        SND.bad();
+      });
+    });
+  }
+
+  function showAdminLogin() {
+    if (adminKey) { showAdmin(); return; }
+    if (!cryptoOK()) { toast('Le menu admin n\'est pas disponible sur cet appareil.'); return; }
+    var m = modal('<h2>🔐 Admin</h2>' +
+      '<label class="field"><span>Mot de passe</span><input id="ad-pw" type="password" autocomplete="off"></label>' +
+      '<p class="form-msg" id="ad-msg"></p>' +
+      '<button class="btn play" id="ad-ok">Entrer</button><button class="btn ghost" data-close>Annuler</button>');
+    var msg = m.el.querySelector('#ad-msg');
+    function go() {
+      var k = window.NOVA_ADMIN_KEY;
+      msg.className = 'form-msg';
+      msg.textContent = 'Vérification…';
+      var pw = m.el.querySelector('#ad-pw').value;
+      crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey'])
+        .then(function (base) {
+          return crypto.subtle.deriveKey({ name: 'PBKDF2', salt: b64Decode(k.salt), iterations: k.iterations, hash: 'SHA-256' },
+            base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+        })
+        .then(function (aes) { return crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64Decode(k.iv) }, aes, b64Decode(k.enc)); })
+        .then(function (pkcs8) { return crypto.subtle.importKey('pkcs8', pkcs8, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']); })
+        .then(function (key) { adminKey = key; m.close(); showAdmin(); }, function () {
+          msg.className = 'form-msg err';
+          msg.textContent = 'Mot de passe incorrect.';
+          SND.bad();
+        });
+    }
+    on(m.el, '#ad-ok', go);
+    m.el.querySelector('#ad-pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+  }
+
+  function showAdmin() {
+    function num(id, label, val) {
+      return '<label class="field num"><span>' + label + '</span><input id="' + id + '" type="number" inputmode="numeric" min="0" value="' + val + '"></label>';
+    }
+    var m = modal('<h2>Menu admin</h2>' +
+      '<label class="field"><span>Code du joueur</span><input id="ad-pid" type="text" autocomplete="off" spellcheck="false" placeholder="ex. ' + fmtPid(playerId()) + '"></label>' +
+      '<label class="check"><input id="ad-all" type="checkbox"> Valable pour tous les joueurs</label>' +
+      '<div class="admin-grid">' + num('ad-coins', 'Jetons 🪙', 500) + num('ad-hammer', 'Marteaux 🔨', 0) +
+      num('ad-shuffle', 'Mélanges 🌀', 0) + num('ad-moves', '+5 coups', 0) + num('ad-lives', 'Vies ❤', 0) + '</div>' +
+      '<p class="form-msg" id="ad-msg"></p>' +
+      '<button class="btn gold" id="ad-make">Créer le code cadeau</button>' +
+      '<div id="ad-out" hidden><textarea id="ad-code" class="code-input" rows="4" readonly></textarea>' +
+      '<button class="btn sm ghost" id="ad-copy">Copier le code</button>' +
+      '<p class="small">Envoie ce code au joueur : il le colle dans Réglages → Code cadeau. Il ne marche qu\'une fois.</p></div>' +
+      '<button class="btn ghost" id="ad-self">Me les donner directement</button>' +
+      '<button class="btn ghost" data-close>Fermer</button>', { cls: 'wide' });
+    var msg = m.el.querySelector('#ad-msg');
+    var all = m.el.querySelector('#ad-all'), pidIn = m.el.querySelector('#ad-pid');
+    all.addEventListener('change', function () { pidIn.disabled = all.checked; });
+    function readGift() {
+      function v(id) { return Math.max(0, Math.floor(+m.el.querySelector('#' + id).value || 0)); }
+      return { coins: v('ad-coins'), hammer: v('ad-hammer'), shuffle: v('ad-shuffle'), moves: v('ad-moves'), lives: v('ad-lives') };
+    }
+    function empty(g) { return !(g.coins || g.hammer || g.shuffle || g.moves || g.lives); }
+    on(m.el, '#ad-make', function () {
+      msg.className = 'form-msg';
+      msg.textContent = '';
+      var g = readGift();
+      if (empty(g)) { msg.className = 'form-msg err'; msg.textContent = 'Indique au moins un jeton ou un bonus.'; return; }
+      var pid = all.checked ? ALL_PLAYERS : cleanPid(pidIn.value);
+      if (!all.checked && pid.length !== 10) {
+        msg.className = 'form-msg err';
+        msg.textContent = 'Le code joueur fait 10 caractères (il est affiché dans Réglages du joueur).';
+        return;
+      }
+      var payload = makePayload(pid, g);
+      crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, adminKey, payload).then(function (sig) {
+        var full = new Uint8Array(PAYLOAD_LEN + SIG_LEN);
+        full.set(payload, 0);
+        full.set(new Uint8Array(sig), PAYLOAD_LEN);
+        m.el.querySelector('#ad-code').value = 'NOVA-' + b64uEncode(full);
+        m.el.querySelector('#ad-out').hidden = false;
+        msg.textContent = 'Code créé pour ' + (all.checked ? 'tous les joueurs' : fmtPid(pid)) + ' : ' + giftText(g).replace(/<[^>]+>/g, '');
+        SND.coin();
+      });
+    });
+    on(m.el, '#ad-copy', function () { copyText(m.el.querySelector('#ad-code').value, m.el.querySelector('#ad-code')); });
+    on(m.el, '#ad-self', function () {
+      var g = readGift();
+      if (empty(g)) { msg.className = 'form-msg err'; msg.textContent = 'Indique au moins un jeton ou un bonus.'; return; }
+      applyGift(g);
+      msg.className = 'form-msg';
+      msg.textContent = 'Ajouté à ton jeu : ' + giftText(g).replace(/<[^>]+>/g, '');
+    });
+  }
+
+  function copyText(text, el) {
+    function fallback() {
+      if (el && el.select) { el.focus(); el.select(); }
+      else if (el) { var r = document.createRange(); r.selectNodeContents(el); var s = getSelection(); s.removeAllRanges(); s.addRange(r); }
+      toast('Sélectionné : appuie longuement pour copier');
+    }
+    try {
+      navigator.clipboard.writeText(text).then(function () { toast('Copié !'); }, fallback);
+    } catch (e) { fallback(); }
   }
 
   /* ===================== Entrées tactiles ===================== */

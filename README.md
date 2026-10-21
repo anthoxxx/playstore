@@ -77,6 +77,19 @@ Pour compiler sur ton ordinateur : installe Android Studio, ouvre ce dossier, pu
 
 Pour chaque mise à jour, augmente `versionCode` (et `versionName`) dans `app/build.gradle`.
 
+## Menu admin et codes cadeaux
+
+- Chaque joueur a un **code joueur** (Réglages → « Ton code joueur »).
+- **Réglages → 🔐 Admin** → mot de passe → choisis le code du joueur (ou « tous les joueurs »),
+  les jetons et les bonus → **Créer le code cadeau** → envoie le code au joueur.
+- Le joueur le colle dans **Réglages → 🎁 Entrer un code cadeau**. Un code ne marche qu'une fois,
+  et seulement pour le joueur visé.
+- « Me les donner directement » ajoute les jetons sur l'appareil de l'admin.
+- Les codes sont signés (ECDSA) : le jeu ne contient que la clé publique et la clé privée
+  chiffrée par le mot de passe. Sans le mot de passe, personne ne peut fabriquer de code.
+- Changer le mot de passe (invalide les anciens codes) :
+  `node tools/admin-password.js "nouveau mot de passe"` puis commit de `js/admin-key.js`.
+
 ## Tests
 
 ```bash
