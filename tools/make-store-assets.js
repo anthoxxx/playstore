@@ -19,6 +19,20 @@ const GAME = 'file://' + path.join(ROOT, 'app/src/main/assets/www/index.html');
   await art.waitForTimeout(800);
   await (await art.$('#icon')).screenshot({ path: path.join(OUT, 'icon-512.png') });
   await (await art.$('#feature')).screenshot({ path: path.join(OUT, 'feature-graphic-1024x500.png') });
+  // premier plan de l'icône Android, à chaque densité
+  const fgData = await art.evaluate(() => document.getElementById('fg').toDataURL('image/png'));
+  const fgPage = await browser.newPage();
+  for (const [dir, px] of [['mdpi', 108], ['hdpi', 162], ['xhdpi', 216], ['xxhdpi', 324], ['xxxhdpi', 432]]) {
+    const b64 = await fgPage.evaluate(async ([src, px]) => {
+      const img = new Image(); img.src = src; await img.decode();
+      const c = document.createElement('canvas'); c.width = c.height = px;
+      const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(img, 0, 0, px, px);
+      return c.toDataURL('image/png').split(',')[1];
+    }, [fgData, px]);
+    const dirPath = path.join(ROOT, 'app/src/main/res/mipmap-' + dir);
+    require('fs').mkdirSync(dirPath, { recursive: true });
+    require('fs').writeFileSync(path.join(dirPath, 'ic_launcher_foreground.png'), Buffer.from(b64, 'base64'));
+  }
 
   // captures d'écran 1080x1920
   const page = await browser.newPage({ viewport: { width: 360, height: 640 }, deviceScaleFactor: 3 });

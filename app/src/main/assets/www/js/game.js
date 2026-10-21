@@ -88,7 +88,12 @@
   var bgStars = [];
   (function () {
     var rnd = E.mulberry32(4242);
-    for (var i = 0; i < 170; i++) bgStars.push({ x: rnd(), y: rnd(), r: rnd() * 1.5 + 0.3, tw: rnd() * 6.28, sp: rnd() * 0.003 + 0.001, dy: rnd() * 0.00001 + 0.000004 });
+    var tints = ['#ffffff', '#ffffff', '#ffffff', '#cfe0ff', '#aac8ff', '#fff1d6', '#ffd9b0'];
+    for (var i = 0; i < 260; i++) {
+      var r = Math.pow(rnd(), 3) * 1.6 + 0.25;
+      bgStars.push({ x: rnd(), y: rnd(), r: r, tw: rnd() * 6.28, sp: rnd() * 0.002 + 0.0006, dy: rnd() * 0.000008 + 0.000003,
+        c: tints[Math.floor(rnd() * tints.length)], bright: i < 9 });
+    }
   })();
   var themeCur = [hexRgb('#1b0f3d'), hexRgb('#c86bff')];
   var themeTgt = [hexRgb('#1b0f3d'), hexRgb('#c86bff')];
@@ -97,34 +102,121 @@
     themeTgt = [hexRgb(t[0]), hexRgb(t[1])];
   }
 
+  /* nébuleuses : bruit fractal calculé une fois, puis teinté selon le monde */
+  function noiseCanvas(size, seed, cell, octaves, contrast, cut) {
+    var rnd = E.mulberry32(seed);
+    var grids = [];
+    for (var o = 0; o < octaves; o++) {
+      var n = Math.ceil(size / (cell / Math.pow(2, o))) + 2, g = [];
+      for (var k = 0; k < n * n; k++) g.push(rnd());
+      grids.push({ n: n, g: g, step: cell / Math.pow(2, o) });
+    }
+    function sm(t) { return t * t * (3 - 2 * t); }
+    var cv = document.createElement('canvas');
+    cv.width = cv.height = size;
+    var c = cv.getContext('2d');
+    var img = c.createImageData(size, size), d = img.data;
+    for (var y = 0; y < size; y++) for (var x = 0; x < size; x++) {
+      var v = 0, amp = 0.5, tot = 0;
+      for (o = 0; o < octaves; o++) {
+        var G = grids[o], fx = x / G.step, fy = y / G.step, ix = Math.floor(fx), iy = Math.floor(fy);
+        var tx = sm(fx - ix), ty = sm(fy - iy), n2 = G.n;
+        var a = G.g[iy * n2 + ix], b = G.g[iy * n2 + ix + 1], cc = G.g[(iy + 1) * n2 + ix], dd = G.g[(iy + 1) * n2 + ix + 1];
+        v += amp * (a + (b - a) * tx + (cc - a) * ty + (a - b - cc + dd) * tx * ty);
+        tot += amp;
+        amp *= 0.55;
+      }
+      v /= tot;
+      // fondu sur les bords pour une texture qui s'étire sans couture visible
+      var ex = Math.min(x, size - 1 - x) / (size * 0.18), ey = Math.min(y, size - 1 - y) / (size * 0.18);
+      var edge = Math.min(1, ex) * Math.min(1, ey);
+      var al = Math.pow(clamp((v - cut) * contrast, 0, 1), 1.6) * edge;
+      var p = (y * size + x) * 4;
+      d[p] = d[p + 1] = d[p + 2] = 255;
+      d[p + 3] = Math.round(al * 255);
+    }
+    c.putImageData(img, 0, 0);
+    return cv;
+  }
+  var NEB = null;
+  function nebulaLayers() {
+    if (!NEB) {
+      NEB = {
+        a: noiseCanvas(200, 11, 64, 5, 2.6, 0.42),
+        b: noiseCanvas(200, 29, 48, 5, 2.4, 0.46),
+        dust: noiseCanvas(200, 53, 40, 4, 3.2, 0.5),
+        tint: {}, tintKeys: []
+      };
+    }
+    return NEB;
+  }
+  function tinted(layer, name, rgb) {
+    var N = nebulaLayers();
+    var key = name + (rgb[0] >> 3) + '_' + (rgb[1] >> 3) + '_' + (rgb[2] >> 3);
+    if (N.tint[key]) return N.tint[key];
+    var cv = document.createElement('canvas');
+    cv.width = cv.height = layer.width;
+    var c = cv.getContext('2d');
+    c.fillStyle = rgbStr(rgb);
+    c.fillRect(0, 0, cv.width, cv.height);
+    c.globalCompositeOperation = 'destination-in';
+    c.drawImage(layer, 0, 0);
+    N.tint[key] = cv;
+    N.tintKeys.push(key);
+    if (N.tintKeys.length > 60) delete N.tint[N.tintKeys.shift()];
+    return cv;
+  }
+
   function drawBackground(now, dt) {
     for (var i = 0; i < 2; i++) for (var j = 0; j < 3; j++) themeCur[i][j] = lerp(themeCur[i][j], themeTgt[i][j], Math.min(1, dt * 0.004));
     var a = themeCur[0], b = themeCur[1];
+    // espace profond
     var g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, rgbStr([a[0] * 0.5, a[1] * 0.5, a[2] * 0.5]));
-    g.addColorStop(0.6, rgbStr(a));
-    g.addColorStop(1, rgbStr([lerp(a[0], b[0], 0.35), lerp(a[1], b[1], 0.35), lerp(a[2], b[2], 0.35)]));
+    g.addColorStop(0, rgbStr([a[0] * 0.18 + 2, a[1] * 0.18 + 2, a[2] * 0.18 + 6]));
+    g.addColorStop(1, rgbStr([a[0] * 0.45 + 4, a[1] * 0.45 + 3, a[2] * 0.45 + 10]));
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
-    // nébuleuses
-    for (i = 0; i < 3; i++) {
-      var nx = W * (0.5 + 0.4 * Math.sin(now * 0.00005 + i * 2.1));
-      var ny = H * (0.3 + 0.35 * Math.cos(now * 0.00004 + i * 1.7));
-      var rad = Math.max(W, H) * (0.45 + i * 0.1);
-      var ng = ctx.createRadialGradient(nx, ny, 0, nx, ny, rad);
-      ng.addColorStop(0, rgbStr(b, 0.2 - i * 0.04));
-      ng.addColorStop(1, rgbStr(b, 0));
-      ctx.fillStyle = ng;
-      ctx.fillRect(0, 0, W, H);
-    }
-    ctx.fillStyle = '#fff';
+    var N = nebulaLayers();
+    var big = Math.max(W, H) * 1.5;
+    var drift = now * 0.000012;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = 0.75;
+    ctx.drawImage(tinted(N.a, 'a', b), W * 0.5 - big * 0.55 + Math.sin(drift) * 40, H * 0.35 - big * 0.5 + Math.cos(drift) * 30, big, big);
+    var comp = [b[2] * 0.7 + 30, b[0] * 0.4 + 40, b[1] * 0.6 + 90];
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(tinted(N.b, 'b', comp), W * 0.5 - big * 0.4 - Math.sin(drift * 1.3) * 50, H * 0.7 - big * 0.5, big * 0.9, big * 0.9);
+    ctx.globalAlpha = 0.35;
+    ctx.drawImage(tinted(N.a, 'c', [255, 235, 245]), W * 0.3 - big * 0.25, H * 0.25 - big * 0.25, big * 0.5, big * 0.5);
+    ctx.restore();
+    // poussière sombre
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.drawImage(tinted(N.dust, 'd', [4, 2, 12]), W * 0.5 - big * 0.5, H * 0.5 - big * 0.5 + Math.sin(drift * 0.7) * 30, big, big);
+    ctx.restore();
+    // étoiles
     for (i = 0; i < bgStars.length; i++) {
       var s = bgStars[i];
-      var y = ((s.y + now * s.dy) % 1) * H;
-      ctx.globalAlpha = 0.35 + 0.65 * Math.abs(Math.sin(s.tw + now * s.sp));
-      ctx.beginPath();
-      ctx.arc(s.x * W, y, s.r, 0, Math.PI * 2);
-      ctx.fill();
+      var y = ((s.y + now * s.dy) % 1) * H, x = s.x * W;
+      var tw = 0.55 + 0.45 * Math.sin(s.tw + now * s.sp);
+      ctx.globalAlpha = tw;
+      ctx.fillStyle = s.c;
+      if (s.bright) {
+        var rr = 2.2 + s.r;
+        var sg = ctx.createRadialGradient(x, y, 0, x, y, rr * 5);
+        sg.addColorStop(0, 'rgba(255,255,255,0.9)');
+        sg.addColorStop(0.15, 'rgba(200,220,255,0.35)');
+        sg.addColorStop(1, 'rgba(200,220,255,0)');
+        ctx.fillStyle = sg;
+        ctx.fillRect(x - rr * 5, y - rr * 5, rr * 10, rr * 10);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillRect(x - rr * 6, y - 0.5, rr * 12, 1);
+        ctx.fillRect(x - 0.5, y - rr * 6, 1, rr * 12);
+      } else {
+        ctx.beginPath();
+        ctx.arc(x, y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
     ctx.globalAlpha = 1;
   }
@@ -388,7 +480,7 @@
       worldPlanets(w).forEach(function (pl) {
         var py = mapTotal() - (pl.lv - 0.5) * GAP - 140 - sc;
         var px = pl.side < 0 ? W * 0.08 + pl.fx * W * 0.12 : W * 0.92 - pl.fx * W * 0.12;
-        drawPlanet(px, py, pl.r, pl.hue, pl.ring);
+        drawPlanet(px, py, pl.r, pl.hue, pl.ring, Math.round(pl.lv * 7));
       });
     }
     // bannières de monde
@@ -470,6 +562,15 @@
       }
       ctx.fillStyle = ng;
       ctx.fill();
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(p.x - rad * 0.3, y - rad * 0.42, rad * 0.32, rad * 0.16, -0.5, 0, Math.PI * 2);
+      var hl = ctx.createRadialGradient(p.x - rad * 0.3, y - rad * 0.42, 0, p.x - rad * 0.3, y - rad * 0.42, rad * 0.32);
+      hl.addColorStop(0, 'rgba(255,255,255,0.7)');
+      hl.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = hl;
+      ctx.fill();
+      ctx.restore();
       ctx.lineWidth = 3;
       ctx.strokeStyle = unlocked ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.25)';
       ctx.stroke();
@@ -506,24 +607,9 @@
     var c = hexRgb(hex);
     return rgbStr(k < 0 ? [c[0] * (1 + k), c[1] * (1 + k), c[2] * (1 + k)] : [c[0] + (255 - c[0]) * k, c[1] + (255 - c[1]) * k, c[2] + (255 - c[2]) * k]);
   }
-  function drawPlanet(x, y, r, hue, ring) {
-    ctx.save();
-    var g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
-    g.addColorStop(0, 'hsla(' + hue + ',90%,80%,0.9)');
-    g.addColorStop(0.6, 'hsla(' + hue + ',70%,50%,0.75)');
-    g.addColorStop(1, 'hsla(' + hue + ',70%,20%,0.6)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-    if (ring) {
-      ctx.strokeStyle = 'hsla(' + ((hue + 40) % 360) + ',90%,75%,0.6)';
-      ctx.lineWidth = r * 0.12;
-      ctx.beginPath();
-      ctx.ellipse(x, y, r * 1.6, r * 0.38, -0.35, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
+  function drawPlanet(x, y, r, hue, ring, seed) {
+    var img = A.planetSprite(r, hue, ring, seed || 1);
+    ctx.drawImage(img, x - img.size / 2, y - img.size / 2, img.size, img.size);
   }
   function drawRocket(x, y) {
     ctx.save();
@@ -838,23 +924,33 @@
   function drawPlay(now, dt) {
     var b = G.board, cs = G.cs, bx = G.bx, by = G.by, R = b.R, C = b.C, r, c;
     var cv2 = G.cellsView;
-    // fond du plateau
+    // fond du plateau : verre fumé
     ctx.save();
-    ctx.fillStyle = 'rgba(8,4,28,0.62)';
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = cs * 0.5;
+    ctx.fillStyle = 'rgba(6,4,20,0.78)';
     for (r = 0; r < R; r++) for (c = 0; c < C; c++) {
       if (!b.cells[r][c].on) continue;
       ctx.beginPath();
-      A.roundRect(ctx, bx + c * cs - 3, by + r * cs - 3, cs + 6, cs + 6, cs * 0.18);
-      ctx.fill();
-    }
-    for (r = 0; r < R; r++) for (c = 0; c < C; c++) {
-      if (!b.cells[r][c].on) continue;
-      ctx.fillStyle = (r + c) % 2 ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.13)';
-      ctx.beginPath();
-      A.roundRect(ctx, bx + c * cs + 1, by + r * cs + 1, cs - 2, cs - 2, cs * 0.14);
+      A.roundRect(ctx, bx + c * cs - 4, by + r * cs - 4, cs + 8, cs + 8, cs * 0.16);
       ctx.fill();
     }
     ctx.restore();
+    for (r = 0; r < R; r++) for (c = 0; c < C; c++) {
+      if (!b.cells[r][c].on) continue;
+      var tx = bx + c * cs + 1.5, ty = by + r * cs + 1.5, ts = cs - 3;
+      var tg = ctx.createLinearGradient(tx, ty, tx, ty + ts);
+      var k = (r + c) % 2 ? 0.05 : 0.09;
+      tg.addColorStop(0, 'rgba(190,200,255,' + (k + 0.05) + ')');
+      tg.addColorStop(1, 'rgba(120,130,200,' + (k * 0.4) + ')');
+      ctx.fillStyle = tg;
+      ctx.beginPath();
+      A.roundRect(ctx, tx, ty, ts, ts, cs * 0.12);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
     // gelée
     for (r = 0; r < R; r++) for (c = 0; c < C; c++) {
       if (cv2[r][c][0] > 0) A.drawJelly(ctx, bx + c * cs, by + r * cs, cs, cv2[r][c][0]);
@@ -889,7 +985,7 @@
     ctx.rect(bx - 4, by - cs * (R + 6), C * cs + 8, cs * (R + 6));
     for (r = 0; r < R; r++) for (c = 0; c < C; c++) if (b.cells[r][c].on) ctx.rect(bx + c * cs - 4, by + r * cs - 4, cs + 8, cs + 8);
     ctx.clip();
-    var candySize = cs * 0.9;
+    var candySize = cs * 0.98;
     for (var id in sprites) {
       var s = sprites[id];
       var x = bx + (s.x + 0.5) * cs, y = by + (s.y + 0.5) * cs;

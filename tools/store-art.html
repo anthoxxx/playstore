@@ -12,6 +12,7 @@
 </style></head>
 <body>
 <canvas id="icon" width="512" height="512"></canvas>
+<canvas id="fg" width="432" height="432"></canvas>
 <div id="feature"><canvas id="fbg" width="1024" height="500"></canvas>
   <div class="logo"><span class="l1">Candy</span><span class="l2">Nova</span></div>
   <div class="byline">by Anthony F <em>(Floris Strange)</em></div></div>
@@ -35,11 +36,20 @@ var K = NovaEngine.K;
 // icône 512
 var ic = document.getElementById('icon').getContext('2d');
 sky(ic, 512, 512, 7);
-ic.save(); ic.shadowColor = 'rgba(255,120,220,0.8)'; ic.shadowBlur = 60;
-candy(ic, 256, 276, 330, 0, K.SV, 0); ic.restore();
-ic.fillStyle = '#ffd23d';
+function iconScene(c, cx, cy, k) {
+  c.save(); c.shadowColor = 'rgba(255,120,220,0.55)'; c.shadowBlur = 50 * k;
+  candy(c, cx, cy + 10 * k, 270 * k, -1, K.NOVA, 0); c.restore();
+  candy(c, cx - 118 * k, cy + 112 * k, 140 * k, 0, K.SV, -0.25);
+  candy(c, cx + 120 * k, cy + 108 * k, 130 * k, 4, K.SH, 0);
+  c.fillStyle = '#ffd23d'; c.shadowColor = '#fff6a8'; c.shadowBlur = 24 * k;
+  star4(c, cx + 118 * k, cy - 118 * k, 46 * k);
+  c.shadowBlur = 0;
+}
 function star4(c, x, y, r) { c.beginPath(); c.moveTo(x, y - r); c.lineTo(x + r * 0.26, y - r * 0.26); c.lineTo(x + r, y); c.lineTo(x + r * 0.26, y + r * 0.26); c.lineTo(x, y + r); c.lineTo(x - r * 0.26, y + r * 0.26); c.lineTo(x - r, y); c.lineTo(x - r * 0.26, y - r * 0.26); c.closePath(); c.fill(); }
-ic.shadowColor = '#fff6a8'; ic.shadowBlur = 30; star4(ic, 392, 132, 58); ic.fillStyle = '#fff'; star4(ic, 132, 378, 26);
+iconScene(ic, 256, 236, 1);
+// premier plan de l'icône adaptative Android (432 px, zone sûre centrale 66/108)
+var fg = document.getElementById('fg').getContext('2d');
+iconScene(fg, 216, 204, 0.62);
 // bannière 1024x500
 var fc = document.getElementById('fbg').getContext('2d');
 sky(fc, 1024, 500, 11);
